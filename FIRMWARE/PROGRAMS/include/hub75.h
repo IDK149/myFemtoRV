@@ -28,6 +28,31 @@
 #define BTN_START 'n'
 #define BTN_SELECT 's'
 
+enum SCREEN { WATING, GAMES_MENU, MODE_SELECTOR, PAUSE, GAME_OVER, GAME };
+enum SCREEN screen = WATING;
+
+enum GAME { ROADF, TETRIS, BREAKOUT, SNAKE, SPACE_INVADERS, PONG };
+
+typedef enum { SINGLE = 0, MULTI, LOCAL, NUM_MODES } GameMode;
+
+enum GAME_STATUS {
+  GAME_OK = 0,
+  GAME_DIRTY = 1,
+  GAME_EXIT_MODE = -1,
+  GAME_REQ_PAUSE = 2,
+  GAME_REQ_OVER = 3
+};
+
+typedef struct {
+  void (*init)(GameMode mode);
+  int (*input)(int key);
+  int (*tick)(void);
+  void (*render)(void);
+  void (*draw_mode_bg)(void);
+  void (*draw_pause)(void);
+  void (*draw_over)(void);
+} GameOps;
+
 static inline void hub75_draw_pixel(uint32_t layer, uint8_t x, uint8_t y,
                                     uint32_t color) {
   if (x >= 64 || y >= 64)
@@ -46,6 +71,11 @@ static inline void fill_rect(uint32_t layer, int x0, int y0, int w, int h,
 
 static inline void cleanLayer(uint32_t layer) {
   fill_rect(layer, 0, 0, 64, 64, 0xF0F);
+}
+
+static void clearLayers(void) {
+  cleanLayer(LAYER_BG);
+  cleanLayer(LAYER_SPRITE);
 }
 
 static inline void draw_asset(uint32_t layer, int x0, int y0, int w, int h,
