@@ -1,6 +1,9 @@
 #pragma once
 #include "../include/hub75.h"
-#include "../assets.h"
-void pong_init();
+#include "../pong_assets.h"
+
+void pong_set_mode(int multiplayer);
+void pong_init(void);
 int pong_input(int key);
-void pong_render();
+void pong_update(void);
+void pong_render(void);

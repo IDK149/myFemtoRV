@@ -21,8 +21,9 @@ typedef enum {
 } GameMode;
 
 typedef struct {
-  void (*init)(GameMode mode);
-  int (*input)(int key); 
+  void (*init)(void);
+  int (*input)(int key);
+  void (*update)(void);
   void (*render)(void);
 } GameOps;
 
@@ -30,12 +31,12 @@ static uint8_t game_inited = 0;
 static uint8_t mode_bg_drawn = 0;
 
 static const GameOps games[MAX_GAMES] = {
-    [ROADF]          = {0, 0, 0},
-    [TETRIS]         = {0, 0, 0},
-    [BREAKOUT]       = {0, 0, 0},
-    [SNAKE]          = {0, 0, 0},
-    [SPACE_INVADERS] = {0, 0, 0},
-    [PONG]           = {pong_init, pong_input, pong_render},
+    [ROADF]          = {0, 0, 0, 0},
+    [TETRIS]         = {0, 0, 0, 0},
+    [BREAKOUT]       = {0, 0, 0, 0},
+    [SNAKE]          = {0, 0, 0, 0},
+    [SPACE_INVADERS] = {0, 0, 0, 0},
+    [PONG]           = {pong_init, pong_input, pong_update, pong_render},
 };
 
 static const int SELECTOR_X = 18;
@@ -122,6 +123,9 @@ int update_input(void) {
     case BTN_A:
     case BTN_START:
       selectedMode = (GameMode)modeIndex;
+      if (gameIndex == PONG)
+        /* LOCAL currently uses the same Pong path; FPGA link comes later. */
+        pong_set_mode(selectedMode != SINGLE);
       mode_bg_drawn = 0;
       game_inited = 0;
       screen = GAME;
@@ -209,9 +213,13 @@ void render(void) {
     if (gameIndex >= 0 && gameIndex < MAX_GAMES) {
       if (!game_inited) {
         if (games[gameIndex].init) {
-          games[gameIndex].init(selectedMode);
+          games[gameIndex].init();
         }
         game_inited = 1;
+      }
+      if (games[gameIndex].update) {
+        games[gameIndex].update();
+        dirty = 1;
       }
       if (games[gameIndex].render) {
         games[gameIndex].render();
@@ -233,5 +241,8 @@ int main(void) {
   for (;;) {
     update_input();
     render();
+    if (screen == GAME) {
+      milliwait(16);
+    }
   }
 }
