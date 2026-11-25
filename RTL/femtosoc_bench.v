@@ -1,72 +1,152 @@
+
 /*
- * testbench for femtosoc/femtorv32
+ * Testbench for femtosoc / femtorv32
  *
- * 1. select one of the processors by uncommenting one of the
- *    lines NRV_FEMTORV32_XXX
+ * Supports:
+ *   - Verilator
+ *   - Icarus Verilog
  *
- * 2. edit FIRMWARE/config.mk and make sure ARCH corresponds to
- *    selected processor.
- *
- * $ cd FIRMWARE/EXAMPLES 
- * $ make hello.hex
- * $ cd ../..
- * $ make testbench
- * 
- * Uncomment VERBOSE for extensive information (states ...)
- */ 
+ * The external ports follow the femtosoc configuration.
+ */
 
 `timescale 1ns/1ns
 
-//`include "femtosoc_config.v"
-//
-//`ifndef BENCH
-//`define BENCH
-//`endif
-
-`define VERBOSE // Uncomment to have detailed log traces of all states
 `include "femtosoc.v"
 
+
 `ifdef VERILATOR
+
 module femtoRV32_bench(
-    input pclk, 
-    output oled_DIN, oled_CLK, oled_CS, oled_DC, oled_RST
+
+    input pclk,
+
+`ifdef NRV_IO_HUB75
+    output r0, g0, b0,
+    output r1, g1, b1,
+    output clk_out,
+    output latch,
+    output oe,
+    output [4:0] addr,
+`endif
+
+`ifdef NRV_IO_LEDS
+    output D1, D2, D3, D4, D5,
+`endif
+
+`ifdef NRV_IO_UART
+    output TXD,
+    input RXD,
+`endif
+
+`ifdef NRV_SPI_FLASH
+    inout spi_mosi,
+    inout spi_miso,
+    output spi_cs_n,
+ `ifndef ULX3S
+    output spi_clk,
+ `endif
+`endif
+
+    input RESET
 );
+
 `else
+
 module femtoRV32_bench();
-   reg pclk;
+
+    reg pclk;
+
+`ifdef NRV_IO_HUB75
+    wire r0, g0, b0;
+    wire r1, g1, b1;
+    wire clk_out, latch, oe;
+    wire [4:0] addr;
 `endif
 
-   wire [4:0] LEDs;
-
-   wire TXD;
-   femtosoc uut(
-      .pclk(pclk),
-      .TXD(TXD),
-      .RXD(1'b0),
-      .RESET(1'b0),
-
-`ifdef NRV_IO_SSD1351_1331
-      .oled_DIN(oled_DIN),
-      .oled_CLK(oled_CLK),
-      .oled_CS(oled_CS),
-      .oled_DC(oled_DC),      
-      .oled_RST(oled_RST),
+`ifdef NRV_IO_LEDS
+    wire D1, D2, D3, D4, D5;
 `endif
-      .D1(LEDs[0]),
-      .D2(LEDs[1]),		 
-      .D3(LEDs[2]),		 
-      .D4(LEDs[3]),		 
-      .D5(LEDs[4])
-   );
 
+`ifdef NRV_IO_UART
+    wire TXD;
+    wire RX;
+    initial RXD = 1'b1;
+`endif
+
+`ifdef NRV_SPI_FLASH
+    wire spi_mosi, spi_miso;
+    wire spi_cs_n;
+ `ifndef ULX3S
+    wire spi_clk;
+ `endif
+`endif
+
+    wire RESET = 1'b0;
+
+`endif
+
+
+/********************* Clock generation ************************/
 
 `ifndef VERILATOR
-   initial begin
-      pclk = 0;
-      forever begin
-	 #1 pclk = ~pclk;
-      end
-   end
+
+initial begin
+    pclk = 1'b0;
+
+    forever begin
+        #1 pclk = ~pclk;
+    end
+end
+
 `endif
 
+
+/********************* SoC instance ****************************/
+
+femtosoc uut (
+
+    .pclk(pclk),
+    .RESET(RESET),
+
+`ifdef NRV_IO_UART
+    .TXD(TXD),
+    .RXD(RXD),
+`endif
+
+`ifdef NRV_IO_LEDS
+    .D1(D1),
+    .D2(D2),
+    .D3(D3),
+    .D4(D4),
+    .D5(D5),
+`endif
+
+`ifdef NRV_IO_HUB75
+    .r0(r0),
+    .g0(g0),
+    .b0(b0),
+
+    .r1(r1),
+    .g1(g1),
+    .b1(b1),
+
+    .addr(addr),
+
+    .clk_out(clk_out),
+    .latch(latch),
+    .oe(oe),
+`endif
+
+`ifdef NRV_SPI_FLASH
+    .spi_mosi(spi_mosi),
+    .spi_miso(spi_miso),
+    .spi_cs_n(spi_cs_n),
+ `ifndef ULX3S
+    .spi_clk(spi_clk)
+ `endif
+`endif
+
+);
+
 endmodule
+

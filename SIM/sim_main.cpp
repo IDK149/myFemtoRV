@@ -1,28 +1,31 @@
+#include "HUB75.h"
 #include "VfemtoRV32_bench.h"
 #include "verilated.h"
-#include "FPU_funcs.h"
-#include "SSD1351.h"
-#include <memory>
 #include <fenv.h>
+#include <memory>
 #include <xmmintrin.h>
 
-int main(int argc, char** argv, char** env) {
+int main(int argc, char **argv, char **env) {
 
-   // simplest rounding = ignore LSBs
-   fesetround(FE_TOWARDZERO);
+  fesetround(FE_TOWARDZERO);
 
-   // for now, flush denormalized result to zero.   
-   _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON); 
-   
-   VfemtoRV32_bench top;
-   SSD1351 oled(
-      top.oled_DIN, top.oled_CLK, top.oled_CS, top.oled_DC, top.oled_RST
-   );
-   top.pclk = 0;
-   while(!Verilated::gotFinish()) {
-      top.pclk = !top.pclk;
-      top.eval();
-      oled.eval();
-   }
-   return 0;
+  _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+
+  VfemtoRV32_bench top;
+
+  HUB75 screen(
+        top.r0, top.g0, top.b0, 
+        top.r1, top.g1, top.b1, 
+        top.addr, top.clk_out, top.latch, top.oe
+    );
+
+  top.pclk = 0;
+
+  while (!Verilated::gotFinish()) {
+    top.pclk = !top.pclk;
+    top.eval();
+    screen.eval();
+    glfwPollEvents();
+  }
+  return 0;
 }

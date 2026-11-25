@@ -205,7 +205,23 @@ module femtosoc(
    wire mem_address_is_spi_flash = (mem_address[23:22] == 2'b10);
    wire mapped_spi_flash_rbusy;
    wire [31:0] mapped_spi_flash_rdata;
-   
+
+`ifdef BENCH
+   reg [31:0] bench_flash [0:(1<<20)-1];
+   reg [31:0] bench_flash_rdata;
+   initial begin
+     $display("[SIM] Loading firmware into simulated SPI Flash...");
+     $readmemh("FIRMWARE/firmware.hex", bench_flash);
+     $display("[SIM] Firmware loading completed.");
+     $display("[SIM] First instruction: %08x",
+             bench_flash[20'h08000]);
+   end
+   always @(posedge clk)
+      if (mem_rstrb && mem_address_is_spi_flash)
+         bench_flash_rdata <= bench_flash[mem_address[21:2]];
+   assign mapped_spi_flash_rdata = bench_flash_rdata;
+   assign mapped_spi_flash_rbusy = 1'b0;
+`else
    MappedSPIFlash mapped_spi_flash(
       .clk(clk),
       .rstrb(mem_rstrb && mem_address_is_spi_flash),
@@ -221,6 +237,7 @@ module femtosoc(
       .MOSI(spi_mosi)
 `endif				   
    );
+`endif // BENCH
 `else   
    wire mem_address_is_io  =  mem_address[22];
    wire mem_address_is_ram = !mem_address[22];
@@ -612,7 +629,7 @@ end
 `ifdef NRV_INTERRUPTS
     .interrupt_request(1'b0),	      
 `endif     
-    .reset(reset && !uart_brk)
+    .reset(reset)
   );
 
 

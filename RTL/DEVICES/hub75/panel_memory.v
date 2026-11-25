@@ -25,11 +25,11 @@ module panel_memory #(
   reg [W-1:0] background_top, background_bottom;
   reg [W-1:0] sprite_top, sprite_bottom;
 
-  integer i;
-  initial begin
-    for (i = 0; i < 4096; i = i + 1) SPRITE_MEM[i] = KEY;  // sprite starts fully transparent
-    $readmemh("RTL/DEVICES/hub75/background.hex", BACKGROUND_MEM);
-  end
+  // integer i;
+  // initial begin
+  //   for (i = 0; i < 4096; i = i + 1) SPRITE_MEM[i] = KEY;  // sprite starts fully transparent
+  //   $readmemh("RTL/DEVICES/hub75/background.hex", BACKGROUND_MEM);
+  // end
 
   always @(posedge clk) begin
     if (wr_en) begin

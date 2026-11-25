@@ -150,6 +150,9 @@ FEMTORV32_LIBS_SMALL=-L$(RVTOOLCHAIN_LIB_DIR)\
 %.prog: %.spiflash.bin
 	$(TOOLCHAIN_PROG_CMD) $<
 
+%.simProg: %.spiflash.bin
+	(echo "@8000"; od -An -v -tx4 -w4 $< ) > $(FIRMWARE_DIR)/firmware.hex
+
 # Generate a disassembly (for inspection if need be)
 %.list: %.baremetal.elf
 	$(RVOBJDUMP) -Mnumeric -D $< > $@
