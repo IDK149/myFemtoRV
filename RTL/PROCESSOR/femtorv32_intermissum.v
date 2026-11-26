@@ -40,6 +40,24 @@ module FemtoRV32(
    parameter RESET_ADDR       = 32'h00000000;
    parameter ADDR_WIDTH       = 24;
 
+   /*************************************************************************/
+   // And, last but not least, the state machine.
+   /*************************************************************************/
+
+   localparam FETCH_INSTR_bit     = 0;
+   localparam WAIT_INSTR_bit      = 1;
+   localparam EXECUTE_bit         = 2;
+   localparam WAIT_ALU_OR_MEM_bit = 3;
+   localparam NB_STATES           = 4;
+
+   localparam FETCH_INSTR     = 1 << FETCH_INSTR_bit;
+   localparam WAIT_INSTR      = 1 << WAIT_INSTR_bit;
+   localparam EXECUTE         = 1 << EXECUTE_bit;
+   localparam WAIT_ALU_OR_MEM = 1 << WAIT_ALU_OR_MEM_bit;
+
+   (* onehot *)
+   reg [NB_STATES-1:0] state;
+
    /***************************************************************************/
    // Instruction decoding.
    /***************************************************************************/
@@ -47,6 +65,9 @@ module FemtoRV32(
    // Extracts rd,rs1,rs2,funct3,imm and opcode from instruction.
    // Reference: Table page 104 of:
    // https://content.riscv.org/wp-content/uploads/2017/05/riscv-spec-v2.2.pdf
+
+   reg  [31:2] instr;        // Latched instruction. Note that bits 0 and 1 are
+                             // ignored (not used in RV32I base instr set).
 
    // The destination register
    wire [4:0] rdId = instr[11:7];
@@ -79,6 +100,9 @@ module FemtoRV32(
 
    wire isALU = isALUimm | isALUreg;
 
+   // Decoder for mret opcode
+   wire interrupt_return = isSYSTEM & funct3Is[0]; // & (instr[31:20]==12'h302);
+
    /***************************************************************************/
    // The register file.
    /***************************************************************************/
@@ -87,11 +111,39 @@ module FemtoRV32(
    reg [31:0] rs2;
    reg [31:0] registerFile [31:0];
 
-   always @(posedge clk) begin
-     if (writeBack)
-       if (rdId != 0)
-         registerFile[rdId] <= writeBackData;
-   end
+   // CSRs:
+   reg  [ADDR_WIDTH-1:0] mepc;    // The saved program counter.
+   reg  [ADDR_WIDTH-1:0] mtvec;   // The address of the interrupt handler.
+   reg                   mstatus; // Interrupt enable
+   reg                   mcause;  // Interrupt cause (and lock)
+   reg  [63:0]           cycles;  // Cycle counter
+
+   always @(posedge clk) cycles <= cycles + 1;
+
+   wire sel_mstatus = (instr[31:20] == 12'h300);
+   wire sel_mtvec   = (instr[31:20] == 12'h305);
+   wire sel_mepc    = (instr[31:20] == 12'h341);
+   wire sel_mcause  = (instr[31:20] == 12'h342);
+   wire sel_cycles  = (instr[31:20] == 12'hC00);
+   wire sel_cyclesh = (instr[31:20] == 12'hC80);
+
+   // Read CSRs:
+   /* verilator lint_off WIDTH */
+   wire [31:0] CSR_read =
+     (sel_mstatus ? {28'b0, mstatus, 3'b0}  : 32'b0) |
+     (sel_mtvec   ? mtvec                   : 32'b0) |
+     (sel_mepc    ? mepc                    : 32'b0) |
+     (sel_mcause  ? {mcause, 31'b0}         : 32'b0) |
+     (sel_cycles  ? cycles[31:0]            : 32'b0) |
+     (sel_cyclesh ? cycles[63:32]           : 32'b0) ;
+   /* verilator lint_on WIDTH */
+
+   // Write CSRs: 5 bit unsigned immediate or content of RS1
+   wire [31:0] CSR_modifier = instr[14] ? {27'd0, instr[19:15]} : rs1; 
+
+   wire [31:0] CSR_write = (instr[13:12] == 2'b10) ? CSR_modifier | CSR_read  :
+                           (instr[13:12] == 2'b11) ? ~CSR_modifier & CSR_read :
+                        /* (instr[13:12] == 2'b01) ? */  CSR_modifier ;
 
    /***************************************************************************/
    // The ALU. Does operations and tests combinatorially, except divisions.
@@ -148,7 +200,6 @@ module FemtoRV32(
 
    wire funcM     = instr[25];
    wire isDivide  = isALUreg & funcM & instr[14]; // |funct3Is[7:4];
-   wire aluBusy   = |quotient_msk; // ALU is busy if division is in progress.
 
    // funct3: 1->MULH, 2->MULHSU  3->MULHU
    wire isMULH   = funct3Is[1];
@@ -160,6 +211,41 @@ module FemtoRV32(
    wire signed [32:0] signed1 = {sign1, aluIn1};
    wire signed [32:0] signed2 = {sign2, aluIn2};
    wire signed [63:0] multiply = signed1 * signed2;
+
+   /***************************************************************************/
+   // Implementation of DIV/REM instructions, highly inspired by PicoRV32
+
+   reg [31:0] dividend;
+   reg [62:0] divisor;
+   reg [31:0] quotient;
+   reg [31:0] quotient_msk;
+
+   wire aluBusy   = |quotient_msk; // ALU is busy if division is in progress.
+
+   wire divstep_do = divisor <= {31'b0, dividend};
+
+   wire [31:0] dividendN     = divstep_do ? dividend - divisor[31:0] : dividend;
+   wire [31:0] quotientN     = divstep_do ? quotient | quotient_msk  : quotient;
+
+   wire div_sign = ~instr[12] & (instr[13] ? aluIn1[31] : 
+                    (aluIn1[31] != aluIn2[31]) & |aluIn2);
+
+   always @(posedge clk) begin
+      if (isDivide & aluWr) begin
+	 dividend <=   ~instr[12] & aluIn1[31] ? -aluIn1 : aluIn1;
+	 divisor  <= {(~instr[12] & aluIn2[31] ? -aluIn2 : aluIn2), 31'b0};
+	 quotient <= 0;
+	 quotient_msk <= 1 << 31;
+      end else begin
+	 dividend     <= dividendN;
+	 divisor      <= divisor >> 1;
+	 quotient     <= quotientN;
+	 quotient_msk <= quotient_msk >> 1;
+      end
+   end
+      
+   reg  [31:0] divResult;
+   always @(posedge clk) divResult <= instr[13] ? dividendN : quotientN;
 
    /***************************************************************************/
 
@@ -188,39 +274,6 @@ module FemtoRV32(
    wire [31:0] aluOut = isALUreg & funcM ? aluOut_muldiv : aluOut_base;
 
    /***************************************************************************/
-   // Implementation of DIV/REM instructions, highly inspired by PicoRV32
-
-   reg [31:0] dividend;
-   reg [62:0] divisor;
-   reg [31:0] quotient;
-   reg [31:0] quotient_msk;
-
-   wire divstep_do = divisor <= {31'b0, dividend};
-
-   wire [31:0] dividendN     = divstep_do ? dividend - divisor[31:0] : dividend;
-   wire [31:0] quotientN     = divstep_do ? quotient | quotient_msk  : quotient;
-
-   wire div_sign = ~instr[12] & (instr[13] ? aluIn1[31] : 
-                    (aluIn1[31] != aluIn2[31]) & |aluIn2);
-
-   always @(posedge clk) begin
-      if (isDivide & aluWr) begin
-	 dividend <=   ~instr[12] & aluIn1[31] ? -aluIn1 : aluIn1;
-	 divisor  <= {(~instr[12] & aluIn2[31] ? -aluIn2 : aluIn2), 31'b0};
-	 quotient <= 0;
-	 quotient_msk <= 1 << 31;
-      end else begin
-	 dividend     <= dividendN;
-	 divisor      <= divisor >> 1;
-	 quotient     <= quotientN;
-	 quotient_msk <= quotient_msk >> 1;
-      end
-   end
-      
-   reg  [31:0] divResult;
-   always @(posedge clk) divResult <= instr[13] ? dividendN : quotientN;
-
-   /***************************************************************************/
    // The predicate for conditional branches.
    /***************************************************************************/
 
@@ -237,8 +290,6 @@ module FemtoRV32(
    /***************************************************************************/
 
    reg  [ADDR_WIDTH-1:0] PC; // The program counter.
-   reg  [31:2] instr;        // Latched instruction. Note that bits 0 and 1 are
-                             // ignored (not used in RV32I base instr set).
 
    wire [ADDR_WIDTH-1:0] PCplus4 = PC + 4;
 
@@ -279,42 +330,7 @@ module FemtoRV32(
         interrupt_request | (interrupt_request_sticky & ~interrupt_accepted);
    end
 
-   // Decoder for mret opcode
-   wire interrupt_return = isSYSTEM & funct3Is[0]; // & (instr[31:20]==12'h302);
 
-   // CSRs:
-   reg  [ADDR_WIDTH-1:0] mepc;    // The saved program counter.
-   reg  [ADDR_WIDTH-1:0] mtvec;   // The address of the interrupt handler.
-   reg                   mstatus; // Interrupt enable
-   reg                   mcause;  // Interrupt cause (and lock)
-   reg  [63:0]           cycles;  // Cycle counter
-
-   always @(posedge clk) cycles <= cycles + 1;
-
-   wire sel_mstatus = (instr[31:20] == 12'h300);
-   wire sel_mtvec   = (instr[31:20] == 12'h305);
-   wire sel_mepc    = (instr[31:20] == 12'h341);
-   wire sel_mcause  = (instr[31:20] == 12'h342);
-   wire sel_cycles  = (instr[31:20] == 12'hC00);
-   wire sel_cyclesh = (instr[31:20] == 12'hC80);
-
-   // Read CSRs:
-   /* verilator lint_off WIDTH */
-   wire [31:0] CSR_read =
-     (sel_mstatus ? {28'b0, mstatus, 3'b0}  : 32'b0) |
-     (sel_mtvec   ? mtvec                   : 32'b0) |
-     (sel_mepc    ? mepc                    : 32'b0) |
-     (sel_mcause  ? {mcause, 31'b0}         : 32'b0) |
-     (sel_cycles  ? cycles[31:0]            : 32'b0) |
-     (sel_cyclesh ? cycles[63:32]           : 32'b0) ;
-   /* verilator lint_on WIDTH */
-
-   // Write CSRs: 5 bit unsigned immediate or content of RS1
-   wire [31:0] CSR_modifier = instr[14] ? {27'd0, instr[19:15]} : rs1; 
-
-   wire [31:0] CSR_write = (instr[13:12] == 2'b10) ? CSR_modifier | CSR_read  :
-                           (instr[13:12] == 2'b11) ? ~CSR_modifier & CSR_read :
-                        /* (instr[13:12] == 2'b01) ? */  CSR_modifier ;
 
    always @(posedge clk) begin
       if(!reset) begin
@@ -328,19 +344,6 @@ module FemtoRV32(
       end
    end
 
-   /***************************************************************************/
-   // The value written back to the register file.
-   /***************************************************************************/
-
-   /* verilator lint_off WIDTH */
-   wire [31:0] writeBackData  =
-      (isSYSTEM            ? CSR_read  : 32'b0) |  // SYSTEM
-      (isLUI               ? Uimm      : 32'b0) |  // LUI
-      (isALU               ? aluOut    : 32'b0) |  // ALUreg, ALUimm
-      (isAUIPC             ? PCplusImm : 32'b0) |  // AUIPC
-      (isJALR   | isJAL    ? PCplus4   : 32'b0) |  // JAL, JALR
-      (isLoad              ? LOAD_data : 32'b0) ;  // Load
-   /* verilator lint_on WIDTH */
 
    /***************************************************************************/
    // LOAD/STORE
@@ -358,6 +361,12 @@ module FemtoRV32(
    // LOAD, in addition to funct3[1:0], LOAD depends on:
    // - funct3[2] (instr[14]): 0->do sign expansion   1->no sign expansion
 
+   wire [15:0] LOAD_halfword =
+               loadstore_addr[1] ? mem_rdata[31:16] : mem_rdata[15:0];
+
+   wire  [7:0] LOAD_byte =
+               loadstore_addr[0] ? LOAD_halfword[15:8] : LOAD_halfword[7:0];
+
    wire LOAD_sign =
         !instr[14] & (mem_byteAccess ? LOAD_byte[7] : LOAD_halfword[15]);
 
@@ -365,12 +374,6 @@ module FemtoRV32(
          mem_byteAccess ? {{24{LOAD_sign}},     LOAD_byte} :
      mem_halfwordAccess ? {{16{LOAD_sign}}, LOAD_halfword} :
                           mem_rdata ;
-
-   wire [15:0] LOAD_halfword =
-               loadstore_addr[1] ? mem_rdata[31:16] : mem_rdata[15:0];
-
-   wire  [7:0] LOAD_byte =
-               loadstore_addr[0] ? LOAD_halfword[15:8] : LOAD_halfword[7:0];
 
    // STORE
 
@@ -397,30 +400,37 @@ module FemtoRV32(
                     (loadstore_addr[1] ? 4'b1100 : 4'b0011) :
               4'b1111;
 
+   /***************************************************************************/
+   // The value written back to the register file.
+   /***************************************************************************/
+
+   /* verilator lint_off WIDTH */
+   wire [31:0] writeBackData  =
+      (isSYSTEM            ? CSR_read  : 32'b0) |  // SYSTEM
+      (isLUI               ? Uimm      : 32'b0) |  // LUI
+      (isALU               ? aluOut    : 32'b0) |  // ALUreg, ALUimm
+      (isAUIPC             ? PCplusImm : 32'b0) |  // AUIPC
+      (isJALR   | isJAL    ? PCplus4   : 32'b0) |  // JAL, JALR
+      (isLoad              ? LOAD_data : 32'b0) ;  // Load
+   /* verilator lint_on WIDTH */
+
+   wire writeBack = ~(isBranch | isStore ) &
+                    (state[EXECUTE_bit] | state[WAIT_ALU_OR_MEM_bit]);
+
+   always @(posedge clk) begin
+     if (writeBack)
+       if (rdId != 0)
+         registerFile[rdId] <= writeBackData;
+   end
+
    /*************************************************************************/
    // And, last but not least, the state machine.
    /*************************************************************************/
-
-   localparam FETCH_INSTR_bit     = 0;
-   localparam WAIT_INSTR_bit      = 1;
-   localparam EXECUTE_bit         = 2;
-   localparam WAIT_ALU_OR_MEM_bit = 3;
-   localparam NB_STATES           = 4;
-
-   localparam FETCH_INSTR     = 1 << FETCH_INSTR_bit;
-   localparam WAIT_INSTR      = 1 << WAIT_INSTR_bit;
-   localparam EXECUTE         = 1 << EXECUTE_bit;
-   localparam WAIT_ALU_OR_MEM = 1 << WAIT_ALU_OR_MEM_bit;
-
-   (* onehot *)
-   reg [NB_STATES-1:0] state;
 
    // The signals (internal and external) that are determined
    // combinatorially from state and other signals.
 
    // register write-back enable.
-   wire writeBack = ~(isBranch | isStore ) &
-                    (state[EXECUTE_bit] | state[WAIT_ALU_OR_MEM_bit]);
 
    // The memory-read signal.
    assign mem_rstrb = state[EXECUTE_bit] & isLoad | state[FETCH_INSTR_bit];
@@ -520,4 +530,3 @@ endmodule
 // [2] state uses 1-hot encoding (at any time, state has only one bit set to 1).
 // It uses a larger number of bits (one bit per state), but often results in
 // a both more compact (fewer LUTs) and faster state machine.
-

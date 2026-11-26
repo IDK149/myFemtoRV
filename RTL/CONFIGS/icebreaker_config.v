@@ -6,21 +6,15 @@
 `define NRV_IO_UART      // Mapped IO, virtual UART (USB)
 `define NRV_IO_HUB75      
 `define NRV_MAPPED_SPI_FLASH // SPI flash mapped in address space. Can be used with MINIRV32 to run code from SPI flash.
+`define NRV_IO_BUTTONS
 
 /************************* Processor configuration ******************************************************************/
 
-`define NRV_FEMTORV32_QUARK // RV32I 
-// `define NRV_FEMTORV32_ELECTRON      // RV32IM
-//`define NRV_FEMTORV32_INTERMISSUM   // RV32IM  + IRQ
-//`define NRV_FEMTORV32_GRACILIS      // RV32IMC + IRQ
-//`define NRV_FEMTORV32_PETITBATEAU     // RV32IMFC + IRQ, does not fit on IceBreaker
+`define NRV_FEMTORV32_INTERMISSUM   // RV32IM  + IRQ
+`define NRV_INTERRUPTS // IRQ enable
 
 `define NRV_FREQ 20                 // Frequency in MHz. Recomm: 15 MHz   Overclocking: 20-25 MHz
 `define NRV_RESET_ADDR 32'h00820000 // Jump execution to SPI Flash (800000h, +128k(20000h) for FPGA bitstream)
-// tinyraytracer: 30 MHz RV32IM  electron 3:12
-//                20 MHz RV32IM  gracilis 3:44
-//                20 MHz RV32IMC gracilis 3:32
-//                25 MHz RV32IMC gracilis 2:49
 
 /************************* RAM (in bytes, needs to be a multiple of 4)***********************************************/
 

@@ -3,9 +3,15 @@
 
 #include "../../LIBFEMTORV32/femtorv32.h"
 #include <stdint.h>
-#include "../LIBFEMTORV32/keyboard.h"
 
-#define HUB75_BASE_ADDR (IO_BASE | IO_BIT_TO_OFFSET(IO_HUB75_bit))
+typedef enum {
+  BTN_A = 1,
+  BTN_B,
+  BTN_RIGHT,
+  BTN_LEFT,
+  BTN_UP,
+  BTN_DOWN
+} Buttons;
 
 #define LAYER_BG 0U
 #define LAYER_SPRITE 1U
@@ -18,15 +24,6 @@
 #define COLOR_YELLOW 0xFF0
 #define COLOR_CYAN 0x0FF
 #define TRANSPARENT 0xF0F
-
-#define BTN_UP KEY_UP
-#define BTN_DOWN KEY_DOWN
-#define BTN_LEFT KEY_LEFT
-#define BTN_RIGHT KEY_RIGHT
-#define BTN_A 'a'
-#define BTN_B 'b'
-#define BTN_START 'n'
-#define BTN_SELECT 's'
 
 enum SCREEN { WATING, GAMES_MENU, MODE_SELECTOR, PAUSE, GAME_OVER, GAME };
 enum SCREEN screen = WATING;
@@ -59,7 +56,7 @@ static inline void hub75_draw_pixel(uint32_t layer, uint8_t x, uint8_t y,
     return;
   uint32_t word =
       (layer << 30) | ((uint32_t)y << 24) | ((uint32_t)x << 18) | color;
-  *(volatile uint32_t *)HUB75_BASE_ADDR = word;
+  IO_IN(IO_HUB75) = word;
 }
 
 static inline void fill_rect(uint32_t layer, int x0, int y0, int w, int h,
@@ -97,8 +94,8 @@ static inline void draw_background(const uint16_t *asset) {
   draw_asset(LAYER_BG, 0, 0, 64, 64, asset);
 }
 
-static inline void move_sprite(int x_prev, int y_prev, int x_new, int y_new, int w, int h,
-                const uint16_t *asset) {
+static inline void move_sprite(int x_prev, int y_prev, int x_new, int y_new,
+                               int w, int h, const uint16_t *asset) {
   fill_rect(LAYER_SPRITE, x_prev, y_prev, w, h, 0xF0F);
   draw_asset(LAYER_SPRITE, x_new, y_new, w, h, asset);
 }

@@ -57,7 +57,7 @@ int pong_input(int key) {
     return -1;
   }
 
-  if (key == BTN_UP) {
+  if (key == BTN_RIGHT) {
     paddle_y -= PADDLE_STEP;
     if (paddle_y < 0) {
       paddle_y = 0;
@@ -65,7 +65,7 @@ int pong_input(int key) {
     return GAME_DIRTY;
   }
 
-  if (key == BTN_DOWN) {
+  if (key == BTN_LEFT) {
     paddle_y += PADDLE_STEP;
     if (paddle_y > 64 - PADDLE_H) {
       paddle_y = 64 - PADDLE_H;
@@ -73,7 +73,7 @@ int pong_input(int key) {
     return GAME_DIRTY;
   }
 
-  if (key == BTN_START) {
+  if (key == BTN_A) {
     return GAME_REQ_PAUSE;
   }
   return GAME_OK;

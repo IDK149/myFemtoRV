@@ -1,4 +1,3 @@
-#include "../LIBFEMTORV32/keyboard.h"
 #include "assets.c"
 #include "assets.h"
 #include "games/pong.c"
@@ -7,17 +6,22 @@
 #include "games/roadFigthers.h"
 #include "include/hub75.h"
 #include <stdint.h>
+
 #define GAMES_COUNT 6
+#define BTN_COUNT 4
+#define QSIZE 16
+#define GAME_TICK_MS 20
 
 int bg_menu = 0;
 static uint8_t game_inited = 0;
 
+
 static const GameOps games[GAMES_COUNT] = {
     [ROADF] = {roadF_init, roadF_input, 0, roadF_render, roadF_mode_menu, 0, 0},
-    [TETRIS] = {0, 0, 0, 0, 0, 0},
-    [BREAKOUT] = {0, 0, 0, 0, 0, 0},
-    [SNAKE] = {0, 0, 0, 0, 0, 0},
-    [SPACE_INVADERS] = {0, 0, 0, 0, 0, 0},
+    [TETRIS] = {0, 0, 0, 0, 0, 0, 0},
+    [BREAKOUT] = {0, 0, 0, 0, 0, 0, 0},
+    [SNAKE] = {0, 0, 0, 0, 0, 0, 0},
+    [SPACE_INVADERS] = {0, 0, 0, 0, 0, 0, 0},
     [PONG] = {pong_init, pong_input, pong_tick, pong_render, pong_mode_menu,
               pong_pause, 0},
 };
@@ -27,11 +31,46 @@ int8_t modeIndex = 0;
 GameMode selectedMode = SINGLE;
 uint8_t dirty = 1;
 
+static volatile uint8_t key_queue[QSIZE];
+static volatile uint8_t q_head = 0;
+static volatile uint8_t q_tail = 0;
+
+static const uint8_t bit_to_key[BTN_COUNT] = { BTN_A,    BTN_B,
+                                              BTN_RIGHT, BTN_LEFT};
+
+void __attribute__((interrupt)) isr(void) {
+  unsigned int p = IO_IN(IO_BUTTONS);
+  for (int i = 0; i < BTN_COUNT; i++) {
+    if (p & (1u << i)) {
+      uint8_t next = (q_head + 1) & (QSIZE - 1);
+      if (next != q_tail) {
+        key_queue[q_head] = bit_to_key[i];
+        q_head = next;
+      }
+    }
+  }
+}
+
+static int key_pop(void) {
+  if (q_tail == q_head)
+    return 0;
+  int key = key_queue[q_tail];
+  q_tail = (q_tail + 1) & (QSIZE - 1);
+  return key;
+}
+
 static void enter_screen(enum SCREEN next) {
   clearLayers();
   screen = next;
   bg_menu = 0;
   dirty = 1;
+
+  if (next == GAME && !game_inited) {
+    if (gameIndex >= 0 && gameIndex < GAMES_COUNT && games[gameIndex].init) {
+      games[gameIndex].init(selectedMode);
+    }
+    game_inited = 1;
+  }
 }
 
 static void apply_game_status(int status) {
@@ -75,14 +114,10 @@ void update_index_pos(void) {
   old_sel_y = selector_y;
 }
 
-int update_input(void) {
-  int key = UART_pollkey();
-  if (!key)
-    return 0;
-
+static void handle_key(int key) {
   switch (screen) {
   case WATING:
-    if (key == BTN_A || key == BTN_START) {
+    if (key == BTN_A) {
       enter_screen(GAMES_MENU);
     }
     break;
@@ -103,8 +138,6 @@ int update_input(void) {
       enter_screen(WATING);
       break;
     case BTN_A:
-      break;
-    case BTN_START:
       modeIndex = 0;
       game_inited = 0;
       enter_screen(MODE_SELECTOR);
@@ -118,17 +151,11 @@ int update_input(void) {
       modeIndex = (modeIndex + NUM_MODES - 1) % NUM_MODES;
       dirty = 1;
       break;
-    case BTN_RIGHT:
-      break;
     case BTN_DOWN:
       modeIndex = (modeIndex + 1) % NUM_MODES;
       dirty = 1;
       break;
-    case BTN_LEFT:
-      break;
     case BTN_A:
-      break;
-    case BTN_START:
       selectedMode = (GameMode)modeIndex;
       game_inited = 0;
       enter_screen(GAME);
@@ -142,12 +169,14 @@ int update_input(void) {
   case GAME:
     if (gameIndex >= 0 && gameIndex < GAMES_COUNT && games[gameIndex].input) {
       int res = games[gameIndex].input(key);
+      dirty = 1;
       apply_game_status(res);
     } else if (key == BTN_B) {
       game_inited = 0;
       enter_screen(MODE_SELECTOR);
     }
     break;
+
   case PAUSE:
     switch (key) {
     case BTN_A:
@@ -157,6 +186,8 @@ int update_input(void) {
       enter_screen(MODE_SELECTOR);
       break;
     }
+    break;
+
   case GAME_OVER:
     switch (key) {
     case BTN_A:
@@ -168,33 +199,27 @@ int update_input(void) {
       enter_screen(MODE_SELECTOR);
       break;
     }
+    break;
 
   default:
     break;
   }
-  return 1;
 }
 
-static void step_game(void) {
-  if (screen != GAME || gameIndex < 0 || gameIndex >= GAMES_COUNT)
+static void handle_time(void) {
+  static uint64_t next_ms = 0;
+
+  if (screen != GAME || gameIndex < 0 || gameIndex >= GAMES_COUNT ||
+      !games[gameIndex].tick)
     return;
 
-  if (!game_inited) {
-    if (games[gameIndex].init) {
-      games[gameIndex].init(selectedMode);
-    }
-    game_inited = 1;
-    dirty = 1;
-  }
+  uint64_t now = milliseconds();
+  if (now < next_ms)
+    return;
+  next_ms = now + GAME_TICK_MS;
 
-  if (games[gameIndex].tick) {
-    int status = games[gameIndex].tick();
-    apply_game_status(status);
-  }
-
-  if (screen == GAME) {
-    dirty = 1;
-  }
+  dirty = 1;
+  apply_game_status(games[gameIndex].tick());
 }
 
 void render(void) {
@@ -242,14 +267,21 @@ void render(void) {
       games[gameIndex].render();
     }
     break;
+
   case PAUSE:
-    if (gameIndex >= 0 && gameIndex < GAMES_COUNT && games[gameIndex].render) {
+    if (gameIndex >= 0 && gameIndex < GAMES_COUNT &&
+        games[gameIndex].draw_pause) {
       games[gameIndex].draw_pause();
     }
+    break;
+
   case GAME_OVER:
-    if (gameIndex >= 0 && gameIndex < GAMES_COUNT && games[gameIndex].render) {
+    if (gameIndex >= 0 && gameIndex < GAMES_COUNT &&
+        games[gameIndex].draw_over) {
       games[gameIndex].draw_over();
     }
+    break;
+
   default:
     break;
   }
@@ -257,12 +289,19 @@ void render(void) {
 }
 
 int main(void) {
+  asm volatile("csrw mtvec, %0" ::"r"(isr));
+  asm volatile("csrsi mstatus, 8");
+
   clearLayers();
   render();
 
   for (;;) {
-    update_input();
-    step_game();
+    int key = key_pop();
+    if (key) {
+      handle_key(key);
+    } else {
+      handle_time();
+    }
     render();
   }
 }

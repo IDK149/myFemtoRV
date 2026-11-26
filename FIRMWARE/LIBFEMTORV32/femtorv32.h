@@ -84,6 +84,7 @@ int sd_writesector(uint32_t sector, uint8_t* buffer, uint32_t sector_count); /* 
 #define IO_SPI_FLASH         IO_BIT_TO_OFFSET(IO_SPI_FLASH_bit)
 #define IO_SDCARD            IO_BIT_TO_OFFSET(IO_SDCARD_bit)
 #define IO_BUTTONS           IO_BIT_TO_OFFSET(IO_BUTTONS_bit)
+#define IO_HUB75             IO_BIT_TO_OFFSET(IO_HUB75_bit)
 #define IO_FGA_CNTL          IO_BIT_TO_OFFSET(IO_FGA_CNTL_bit)
 #define IO_FGA_DAT           IO_BIT_TO_OFFSET(IO_FGA_DAT_bit)    
 #define IO_HW_CONFIG_RAM     IO_BIT_TO_OFFSET(IO_HW_CONFIG_RAM_bit)
@@ -97,42 +98,6 @@ int sd_writesector(uint32_t sector, uint8_t* buffer, uint32_t sector_count); /* 
 #define FEMTOSOC_HAS_DEVICE(bit)  (IO_IN(IO_HW_CONFIG_DEVICES) & (1 << bit))
 #define FEMTORV32_FREQ           ((IO_IN(IO_HW_CONFIG_CPUINFO) >> 16) & 1023)
 #define FEMTORV32_COUNTER_BITS    (IO_IN(IO_HW_CONFIG_CPUINFO) & 127)
-
-
-/* SSD1331/SSD1351 Oled display on 4-wire SPI bus */
-
-#if defined(SSD1351)
-#define OLED_WIDTH  128
-#define OLED_HEIGHT 128
-#endif
-
-#if defined(SSD1331)
-#define OLED_WIDTH  96
-#define OLED_HEIGHT 64
-#endif
-
-#ifndef OLED_WIDTH
-#define OLED_WIDTH 0
-#endif
-
-#ifndef OLED_HEIGHT
-#define OLED_HEIGHT 0
-#endif
-
-extern void oled_init();
-extern void oled_write_window(uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2);
-extern void oled0(uint32_t cmd);
-extern void oled1(uint32_t cmd, uint32_t arg1);
-extern void oled2(uint32_t cmd, uint32_t arg1, uint32_t arg2);
-extern void oled3(uint32_t cmd, uint32_t arg1, uint32_t arg2, uint32_t arg3);
-
-/* MAX7219 led matrix */
-extern void MAX7219_init();
-extern void MAX7219(uint32_t address, uint32_t value);
-
-#define MIN(x,y) (((x) < (y)) ? (x) : (y))
-#define MAX(x,y) (((x) > (y)) ? (x) : (y))
-#define SGN(x)   (((x) > (0)) ? 1 : ((x) ? -1 : 0))
 
 /* Mapped SPI FLASH */
 #define SPI_FLASH_BASE ((void*)(1 << 23))
