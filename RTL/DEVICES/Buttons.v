@@ -27,7 +27,13 @@ module Buttons #(
          reg [DEBOUNCE_BITS-1:0] cnt     = 0;
          reg                     clean   = 1'b0;
          reg                     clean_d = 1'b0;
-
+`ifdef BENCH
+         always @(posedge clk) begin
+            sync    <= {sync[0], ~BUTTONS[i]};
+            clean   <= sync[1];
+            clean_d <= clean;
+         end
+`else
          always @(posedge clk) begin
             sync <= {sync[0], ~BUTTONS[i]};   // ~ because of the pull-up
             if (sync[1] == clean)
@@ -38,6 +44,7 @@ module Buttons #(
             end
             clean_d <= clean;
          end
+`endif
 
          assign pulse[i] = clean & ~clean_d;
       end

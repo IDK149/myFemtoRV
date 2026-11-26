@@ -25,6 +25,8 @@ public:
 
     void eval();
     void redraw();
+    bool shouldClose();
+bool isKeyPressed(int key) const { return glfwGetKey(window_, key) == GLFW_PRESS; }
 
 private:
     uint32_t pending_cycles_ = 0;

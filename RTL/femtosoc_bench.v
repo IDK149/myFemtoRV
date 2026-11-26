@@ -29,8 +29,8 @@ module femtoRV32_bench(
     output [4:0] addr,
 `endif
 
-`ifdef NRV_IO_LEDS
-    output D1, D2, D3, D4, D5,
+`ifdef NRV_IO_BUTTONS
+    input [3:0] BUTTONS,
 `endif
 
 `ifdef NRV_IO_UART
@@ -42,9 +42,7 @@ module femtoRV32_bench(
     inout spi_mosi,
     inout spi_miso,
     output spi_cs_n,
- `ifndef ULX3S
     output spi_clk,
- `endif
 `endif
 
     input RESET
@@ -63,8 +61,8 @@ module femtoRV32_bench();
     wire [4:0] addr;
 `endif
 
-`ifdef NRV_IO_LEDS
-    wire D1, D2, D3, D4, D5;
+`ifdef NRV_IO_BUTTONS
+    wire [3:0] BUTTONS;
 `endif
 
 `ifdef NRV_IO_UART
@@ -107,6 +105,10 @@ femtosoc uut (
 
     .pclk(pclk),
     .RESET(RESET),
+
+`ifdef NRV_IO_BUTTONS
+  .BUTTONS(BUTTONS),
+`endif
 
 `ifdef NRV_IO_UART
     .TXD(TXD),

@@ -124,3 +124,5 @@ void HUB75::redraw() {
     glDrawPixels(WIDTH, HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, framebuffer_.data());
     glfwSwapBuffers(window_);
 }
+
+bool HUB75::shouldClose() { return glfwWindowShouldClose(window_); }
